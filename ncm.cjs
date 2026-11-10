@@ -14,13 +14,27 @@ const event = (kind, fields = {}) => {
 };
 const message = text => embedded ? event("message", { text }) : output(text);
 
+function cleanCookie(raw) {
+    if (!raw) return "";
+    const ignored = new Set(["path", "domain", "expires", "max-age", "secure", "httponly", "samesite", "priority"]);
+    return raw
+        .split(/[;\n]/)
+        .map(pair => pair.trim())
+        .filter(pair => {
+            const eq = pair.indexOf("=");
+            if (eq <= 0) return false;
+            return !ignored.has(pair.slice(0, eq).trim().toLowerCase());
+        })
+        .join("; ");
+}
+
 function saveCookie(cookie) {
-    const encoded = Buffer.from(cookie).toString("base64");
-    const result = spawnSync("/usr/bin/security", ["-i"], {
-        input: `add-generic-password -U -s ${service} -a session -w ${encoded}\n`,
-        encoding: "utf8",
-    });
-    if (result.status !== 0 || result.stderr.includes("SecKeychain")) {
+    const cleaned = cleanCookie(cookie);
+    const encoded = Buffer.from(cleaned).toString("base64");
+    const result = spawnSync("/usr/bin/security", [
+        "add-generic-password", "-U", "-s", service, "-a", "session", "-w", encoded,
+    ], { encoding: "utf8" });
+    if (result.status !== 0) {
         throw new Error("无法保存网易云登录到 macOS 钥匙串。");
     }
 }
