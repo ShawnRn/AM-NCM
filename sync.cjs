@@ -13,8 +13,21 @@ const overridePath = join(directory, "netease-overrides.json");
 
 const normalized = value => (value ?? "").normalize("NFKC").toLowerCase()
     .replace(/[’']/gu, "").replace(/[^\p{L}\p{M}\p{N}]+/gu, " ").trim();
+const artistAliases = new Map([
+    ["布兰妮 斯皮尔斯", "britney spears"],
+    ["布蘭妮 斯皮爾斯", "britney spears"],
+    ["西野加奈", "西野カナ"],
+    ["西野 カナ", "西野カナ"],
+    ["kana nishino", "西野カナ"],
+    ["平井大", "hiraidai"],
+    ["平井 大", "hiraidai"],
+]);
+const artistKey = value => {
+    const name = normalized(value);
+    return artistAliases.get(name) ?? name;
+};
 const artistNames = value => (value ?? "").split(/\s+(?:feat\.?|ft\.?)\s+|\s*[、,，&＆;；]\s*/iu)
-    .map(normalized).filter(Boolean).sort().join("|");
+    .map(artistKey).filter(Boolean).sort().join("|");
 
 const version = /\b(?:live|remix|remaster(?:ed)?|acoustic|instrumental|demo|karaoke|sped up|slowed|radio edit|mono|stereo|re recorded|extended|version|edit)\b|现场|現場|混音|伴奏|重制|重製/iu;
 const albumName = value => normalized(value).replace(/ (?:single|ep)$/u, "");
@@ -73,11 +86,11 @@ function decide(source, candidates, existingOnly = false) {
     if (!exact.length && existingOnly) {
         const sourceCredit = credit(source);
         const sourceAlbum = albumName(source.album);
-        const primary = normalized(source.artist);
+        const primary = artistKey(source.artist);
         if (sourceCredit.featured.length && sourceAlbum && primary) {
             exact = candidates.filter(song => {
                 const targetCredit = credit(song);
-                const targetPrimary = normalized(song.artist?.split(", ", 1)[0]);
+                const targetPrimary = artistKey(song.artist?.split(", ", 1)[0]);
                 const targetArtists = new Set(targetCredit.artists.split("|"));
                 return sourceCredit.title === targetCredit.title && primary === targetPrimary
                     && sourceAlbum === albumName(song.album)
@@ -98,6 +111,27 @@ function decide(source, candidates, existingOnly = false) {
         id: exact.length === 1 ? exact[0].id : null,
         candidates: (exact.length ? exact : candidates).slice(0, 5),
     };
+}
+
+const alternateVersion = /\b(?:sessions?|first take|english ver|japanese ver|korean ver|spedup|slowed down|edit(?:ed)?|clean|explicit|mix|medley|reprise|reimagined|recorded at|unplugged|rerecorded|taylor s version)\b|现场|現場|混音|伴奏|重制|重製|翻唱|演唱会|演唱會|串烧|串燒/iu;
+
+function crossAlbumCandidate(source, candidates) {
+    const ordinary = song => song.duration > 0 && albumName(song.album)
+        && ![key(song), albumName(song.album)].some(text => version.test(text) || alternateVersion.test(text));
+    if (!ordinary(source)) return null;
+    const sourceCredit = credit(source);
+    if (!sourceCredit.title || !sourceCredit.artists) return null;
+
+    const nearby = candidates.filter(song => {
+        const targetCredit = credit(song);
+        return targetCredit.title === sourceCredit.title && targetCredit.artists === sourceCredit.artists
+            && song.duration > 0 && Math.abs(song.duration - source.duration) <= 2.5;
+    });
+    if (nearby.length !== 1) return null;
+    const [song] = nearby;
+    if (!ordinary(song) || albumName(song.album) === albumName(source.album)
+        || Math.abs(song.duration - source.duration) > 0.1) return null;
+    return song;
 }
 
 function indexSongs(index, songs) {
@@ -280,6 +314,23 @@ async function plan(db, songs, target, limit, request, output, event) {
     let albumQueries = 0;
     let reused = 0;
     let failed = 0;
+    const searchAndSave = async (source, existing, fingerprint) => {
+        queries++;
+        try {
+            const found = await search(catalog, source);
+            const candidates = uniqueSongs([...existing, ...found]);
+            let result = decide(source, candidates);
+            if (result.status === "review" && !candidates.some(song => compare(source, song))) {
+                const match = crossAlbumCandidate(source, candidates);
+                if (match) result = { status: "matched", id: match.id, candidates: [match], reason: "cross_album" };
+            }
+            write.run(fingerprint, JSON.stringify({ ...result, crossAlbumChecked: true }));
+            return result;
+        } catch (error) {
+            failed++;
+            return { status: "error", id: null, candidates: existing.slice(0, 5), error: error.message };
+        }
+    };
     const resolve = async ({ source, existing, initial, fingerprint, cached, group }) => {
         if (overridesById.has(source.id)) {
             const id = overridesById.get(source.id);
@@ -291,10 +342,16 @@ async function plan(db, songs, target, limit, request, output, event) {
         } else if (existing.filter(song => compare(source, song)).length <= 1) {
             if (cached) {
                 const saved = JSON.parse(cached.result);
-                const album = albumRead.get(groupKey(source));
+                const album = albumRead.get(group);
                 const albumTracks = album ? JSON.parse(album.result) : [];
-                result = saved.id ? saved : decide(source, uniqueSongs([...existing, ...albumTracks, ...saved.candidates]));
+                const candidates = uniqueSongs([...existing, ...albumTracks, ...saved.candidates]);
+                result = saved.id ? saved : decide(source, candidates);
                 if (!result.id && result.candidates.filter(song => compare(source, song)).length < 2) result = saved;
+                // Old reports retain only a shortlist. Search again before accepting a cross-album match.
+                if (!result.id && !saved.crossAlbumChecked && queries < limit
+                    && crossAlbumCandidate(source, candidates)) {
+                    result = await searchAndSave(source, existing, fingerprint);
+                }
             } else if (queries < limit) {
                 if (limit === Infinity && groups.get(group) >= 3) {
                     if (!albumJobs.has(group)) {
@@ -312,15 +369,7 @@ async function plan(db, songs, target, limit, request, output, event) {
                 if (result.id) {
                     write.run(fingerprint, JSON.stringify(result));
                 } else {
-                    queries++;
-                    try {
-                        const found = await search(catalog, source);
-                        result = decide(source, uniqueSongs([...existing, ...found]));
-                        write.run(fingerprint, JSON.stringify(result));
-                    } catch (error) {
-                        failed++;
-                        result = { status: "error", id: null, candidates: existing.slice(0, 5), error: error.message };
-                    }
+                    result = await searchAndSave(source, existing, fingerprint);
                 }
             } else {
                 result = { status: "pending", id: null, candidates: existing.slice(0, 5) };
@@ -507,8 +556,7 @@ async function apply(songs, target, request, favorites, output, pilot, event) {
         event("progress", { text: "正在调整歌曲顺序" });
         await request("song_order_update", { pid: target.id, ids: JSON.stringify(report.desired.map(Number)) });
         reordered = true;
-        event("progress", { text: "正在核对同步结果" });
-        verified = await favorites();
+        if (redirectedIds(report).size) verified = await favorites();
     }
     if (verified.id === target.id && !sameOrder(verified.tracks, report.desired)
         && onlyRedirectedPositionsDiffer(verified.tracks, report)) {
@@ -516,16 +564,32 @@ async function apply(songs, target, request, favorites, output, pilot, event) {
         const ids = report.desired.map(id => Number(redirected.get(id) ?? id));
         await request("song_order_update", { pid: target.id, ids: JSON.stringify(ids) });
         reordered = true;
-        verified = await favorites();
     }
-    if (verified.id !== target.id || !sameOrder(verified.tracks, report.desired)) {
-        throw new Error("网易云回读顺序与计划不同。");
-    }
+    event("progress", { text: "正在等待网易云顺序稳定" });
+    verified = await verifyStableOrder(target, report.desired, allowed, favorites, request);
     await verifyLikes(target, allowed, request);
     if (reconciled && !pilot && readFileSync(reportPath, "utf8") === savedReport) writeReport(report);
     event("done", { count: verified.tracks.length, additions: pending.length, ids: report.additions,
         currentIDs: verified.tracks, reordered, changed: !sameOrder(target.tracks, verified.tracks) });
     output(`已核实网易云红心集合和歌单顺序，共 ${verified.tracks.length} 首，本次新增红心 ${pending.length} 首。`);
+}
+
+async function verifyStableOrder(target, desired, allowed, favorites, request) {
+    let consecutive = 0;
+    // The immediate response can show the requested order before it has settled.
+    for (const wait of [2000, 5000, 5000]) {
+        await delay(wait);
+        const observed = await favorites();
+        if (observed.uid !== target.uid || observed.id !== target.id
+            || observed.tracks.length !== allowed.size || new Set(observed.tracks).size !== allowed.size
+            || observed.tracks.some(id => !allowed.has(id))) {
+            throw new Error("核验期间网易云歌单成员发生变化，请重新预览。");
+        }
+        consecutive = sameOrder(observed.tracks, desired) ? consecutive + 1 : 0;
+        if (consecutive === 2) return observed;
+    }
+    await verifyLikes(target, allowed, request);
+    throw new Error("网易云红心已核对，但歌曲顺序未稳定。请重新预览后重试。");
 }
 
 async function verifyLikes(target, allowed, request) {
