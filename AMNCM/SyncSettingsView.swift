@@ -116,8 +116,10 @@ struct SyncSettingsView: View {
                 }
                 .disabled(model.operation != nil)
                 if model.appleConnected {
-                    Button("断开 Apple Music", action: model.disconnectAppleMusic)
-                        .disabled(model.operation != nil)
+                    Button(role: .destructive, action: model.disconnectAppleMusic) {
+                        Text("断开 Apple Music").foregroundStyle(.red)
+                    }
+                    .disabled(model.operation != nil)
                 }
                 LabeledContent("网易云音乐", value: model.accountName ?? "未登录")
                 Button(model.accountID == nil ? "扫码登录" : "重新扫码登录") {
@@ -126,8 +128,10 @@ struct SyncSettingsView: View {
                 }
                 .disabled(model.operation != nil)
                 if model.accountID != nil {
-                    Button("退出登录", role: .destructive) { confirmLogout = true }
-                        .disabled(model.operation != nil)
+                    Button(role: .destructive, action: { confirmLogout = true }) {
+                        Text("退出登录").foregroundStyle(.red)
+                    }
+                    .disabled(model.operation != nil)
                 }
             }
 
