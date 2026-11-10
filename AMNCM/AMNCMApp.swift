@@ -21,9 +21,10 @@ struct AMNCMApp: App {
 
         Window("匹配明细", id: "report") {
             ReportView(reportVersion: model.reportVersion)
-                .frame(minWidth: 850, minHeight: 470)
+                .frame(minWidth: 1080, minHeight: 520)
         }
         .defaultSize(width: 1120, height: 680)
+        .windowResizability(.contentMinSize)
         .defaultLaunchBehavior(.suppressed)
         .commands { ReportZoomCommands() }
 

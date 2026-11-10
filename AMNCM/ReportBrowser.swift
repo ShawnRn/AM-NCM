@@ -33,9 +33,26 @@ struct ReportBrowser: View {
     @State private var scope: Scope? = .review
     @State private var selection: SyncReport.Entry.ID?
     @State private var query = ""
+    @State private var sort: TrackSort?
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("reportZoom") private var zoom = 0
+
+    private var sortOrder: Binding<[TrackSort]> {
+        Binding {
+            sort.map { [$0] } ?? []
+        } set: { updated in
+            guard let column = updated.first?.column else {
+                sort = nil
+                return
+            }
+            if let sort, sort.column == column {
+                self.sort = sort.order == .forward ? TrackSort(column: column, order: .reverse) : nil
+            } else {
+                sort = TrackSort(column: column)
+            }
+        }
+    }
 
     private var filteredEntries: [SyncReport.Entry] {
         let scope = scope ?? .all
@@ -51,6 +68,7 @@ struct ReportBrowser: View {
 
     var body: some View {
         let entries = filteredEntries
+        let orderedEntries = sort.map { entries.sorted(using: $0) } ?? entries
         NavigationSplitView {
             List(selection: $scope) {
                 Section("匹配报告") {
@@ -93,18 +111,22 @@ struct ReportBrowser: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 Divider()
-                TrackTable(entries: entries, selection: $selection, fontSize: CGFloat(13 + min(max(zoom, -1), 1) * 2))
+                TrackTable(entries: orderedEntries, selection: $selection, sortOrder: sortOrder,
+                           fontSize: CGFloat(13 + min(max(zoom, -1), 1) * 2))
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: zoom)
             }
             .navigationTitle(scope?.rawValue ?? Scope.all.rawValue)
             .navigationSubtitle(report.target.name)
-            .navigationSplitViewColumnWidth(min: 395, ideal: 595)
+            .navigationSplitViewColumnWidth(min: 635, ideal: 665)
         } detail: {
-            if let entry = entries.first(where: { $0.id == selection }) {
-                TrackDetail(entry: entry)
-            } else {
-                ContentUnavailableView(entries.isEmpty ? "没有曲目可显示" : "选择一首曲目", systemImage: "music.note")
+            Group {
+                if let entry = entries.first(where: { $0.id == selection }) {
+                    TrackDetail(entry: entry)
+                } else {
+                    ContentUnavailableView(entries.isEmpty ? "没有曲目可显示" : "选择一首曲目", systemImage: "music.note")
+                }
             }
+            .navigationSplitViewColumnWidth(min: 240, ideal: 270)
         }
         .focusedSceneValue(\.reportZoom, $zoom)
         .onAppear { zoom = min(max(zoom, -1), 1) }
