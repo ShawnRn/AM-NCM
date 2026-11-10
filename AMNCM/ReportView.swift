@@ -9,16 +9,19 @@ struct ReportView: View {
     var body: some View {
         Group {
             if let report {
-                ReportBrowser(report: report)
+                ReportBrowser(report: report, reload: { reload += 1 })
             } else if let errorMessage {
-                ContentUnavailableView("无法打开同步报告", systemImage: "music.note.list", description: Text(errorMessage))
+                ContentUnavailableView {
+                    Label("无法打开同步报告", systemImage: "music.note.list")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("重新载入") { reload += 1 }
+                        .keyboardShortcut("r")
+                }
             } else {
                 ProgressView("读取同步报告…")
             }
-        }
-        .toolbar {
-            Button("重新载入", systemImage: "arrow.clockwise") { reload += 1 }
-                .keyboardShortcut("r")
         }
         .alert("重新载入失败", isPresented: Binding(
             get: { report != nil && errorMessage != nil },
@@ -39,7 +42,7 @@ struct ReportView: View {
             } catch {
                 guard !Task.isCancelled else { return }
                 if (error as NSError).code == NSFileReadNoSuchFileError {
-                    errorMessage = "回到首页，选择「预览同步」后即可查看匹配明细。"
+                    errorMessage = "回到首页，选择「手动同步」后即可查看匹配明细。"
                 } else {
                     errorMessage = ChineseInterfaceText.format(error.localizedDescription)
                 }

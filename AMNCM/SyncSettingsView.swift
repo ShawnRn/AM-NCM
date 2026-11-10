@@ -2,12 +2,9 @@ import SwiftUI
 
 struct SyncSettingsView: View {
     let model: SyncModel
-    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismiss) private var dismiss
     @State private var confirmLogout = false
     @State private var appleLogin: AppleLoginPurpose?
-    @State private var scrollOnOpen = true
-    private static let title = "「AM-NCM」设置"
-    @State private var position = ScrollPosition(edge: .top)
     @Environment(\.controlActiveState) private var activeState
 
     private enum AppleLoginPurpose: Identifiable {
@@ -17,21 +14,30 @@ struct SyncSettingsView: View {
     }
 
     var body: some View {
-        settingsForm
-            .scrollPosition($position)
-            .onAppear {
-                refreshSettings()
-                scrollToTopIfNeeded()
+        VStack(alignment: .leading, spacing: 0) {
+            Text("「AM-NCM」设置")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 8)
+            settingsForm
+                .frame(height: 264)
+            Divider()
+            HStack {
+                Spacer()
+                Button("完成") { dismiss() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.cancelAction)
             }
-            .onChange(of: activeState) { _, state in
-                refreshSettings()
-                if state == .key { scrollToTopIfNeeded() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
-                if (notification.object as? NSWindow)?.title == Self.title {
-                    scrollOnOpen = true
-                }
-            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+        }
+        .frame(width: 480)
+        .onAppear(perform: refreshSettings)
+        .onChange(of: activeState) { _, state in
+            if state == .key { refreshSettings() }
+        }
     }
 
     private var settingsForm: some View {
@@ -60,7 +66,7 @@ struct SyncSettingsView: View {
                     Text("手动同步会先展示预览，再由你确认。")
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("App 运行时会自动添加匹配歌曲并更新顺序。Mac 睡眠期间错过的同步会在唤醒后补跑。")
+                    Text("App 运行时会自动同步。有变化时，才会发送已开启的成功通知。")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -116,7 +122,7 @@ struct SyncSettingsView: View {
                 Divider()
                 LabeledContent("网易云音乐", value: model.accountName ?? "未登录")
                 Button(model.accountID == nil ? "扫码登录" : "重新扫码登录") {
-                    openWindow(id: "main")
+                    dismiss()
                     model.login()
                 }
                 .disabled(model.operation != nil)
@@ -124,6 +130,11 @@ struct SyncSettingsView: View {
                     Button("退出登录", role: .destructive) { confirmLogout = true }
                         .disabled(model.operation != nil)
                 }
+            }
+
+            Section("关于「AM-NCM」") {
+                Text("Made with ❤️ by Shawn Rain (feat. Codex)")
+                Link("GitHub 项目主页", destination: ReleaseUpdates.releasesURL.deletingLastPathComponent())
             }
         }
         .confirmationDialog("退出网易云音乐？", isPresented: $confirmLogout, titleVisibility: .visible) {
@@ -139,10 +150,7 @@ struct SyncSettingsView: View {
                 }
             }
         }
-        .navigationTitle(Self.title)
         .formStyle(.grouped)
-        .frame(width: 480)
-
     }
 
     private var reverseSyncDescription: String {
@@ -161,12 +169,6 @@ struct SyncSettingsView: View {
         } else {
             model.setReverseEnabled(enabled)
         }
-    }
-
-    private func scrollToTopIfNeeded() {
-        guard scrollOnOpen else { return }
-        scrollOnOpen = false
-        position.scrollTo(edge: .top)
     }
 
     private func refreshSettings() {

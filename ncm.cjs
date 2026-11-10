@@ -1,12 +1,13 @@
 const { spawnSync } = require("node:child_process");
-const { mkdtempSync, writeFileSync, rmSync } = require("node:fs");
+const { mkdtempSync, writeFileSync, readFileSync, statSync, rmSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { setTimeout: delay } = require("node:timers/promises");
 const output = console.log.bind(console);
 // The upstream client can include cookies in its diagnostic output.
 for (const method of ["log", "info", "warn", "error", "debug"]) console[method] = () => {};
-const api = require("@neteasecloudmusicapienhanced/api");
+let api;
+const musicAPI = () => api ??= require("@neteasecloudmusicapienhanced/api");
 const service = "local.am-ncm.netease";
 const embedded = process.env.AMNCM_EMBEDDED === "1";
 const event = (kind, fields = {}) => {
@@ -51,6 +52,7 @@ function readCookie() {
 }
 
 async function login() {
+    const api = musicAPI();
     const { body } = await api.login_qr_key({ timeout: 10000 });
     const key = body?.data?.unikey;
     if (!key) throw new Error("网易云没有返回登录二维码。");
@@ -89,7 +91,7 @@ async function login() {
 async function request(method, params) {
     const cookie = ["search", "album"].includes(method) ? {} : readCookie();
     try {
-        const response = await api[method]({ ...params, cookie, timeout: 12000 });
+        const response = await musicAPI()[method]({ ...params, cookie, timeout: 12000 });
         const body = response.body?.body ?? response.body;
         if (body?.code !== 200 && body?.data?.code !== 200) {
             throw new Error(String(body?.code ?? response.status ?? "unknown"));
@@ -126,13 +128,35 @@ async function account() {
     return { uid: String(data.profile.userId), name: data.profile.nickname ?? "网易云音乐" };
 }
 
+function artwork(id) {
+    if (!/^[0-9a-f]{16}$/i.test(id ?? "")) return;
+    const folder = mkdtempSync(join(tmpdir(), "am-ncm-artwork-"));
+    const file = join(folder, "cover");
+    try {
+        const result = spawnSync("/usr/bin/osascript", [join(__dirname, "music-artwork.applescript"), id, file], {
+            timeout: 5000, stdio: "ignore",
+        });
+        if (result.status === 0 && statSync(file).size <= 8 * 1024 * 1024) {
+            event("artwork", { data: readFileSync(file).toString("base64") });
+        }
+    } finally {
+        rmSync(folder, { recursive: true, force: true });
+    }
+}
+
 async function main() {
     const command = process.argv[2];
     if (command === "login") {
         await login();
         if (embedded) event("account", await account());
     } else if (command === "account") event("account", await account());
+    else if (command === "artwork" && embedded) artwork(process.argv[3]);
     else if (command === "scan") event("library", { count: require("./scan.cjs").scan() });
+    else if (command === "scan-plan" && embedded) {
+        event("library", { count: require("./scan.cjs").scan() });
+        event("progress", { text: "正在检查网易云曲目" });
+        await require("./sync.cjs").run("plan", [], { request, favorites, output: message, event });
+    }
     else if (command === "logout" && embedded) {
         const result = spawnSync("/usr/bin/security", ["delete-generic-password", "-s", service, "-a", "session"], {
             encoding: "utf8",

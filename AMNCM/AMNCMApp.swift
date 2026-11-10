@@ -9,14 +9,15 @@ struct AMNCMApp: App {
     var body: some Scene {
         Window("AM-NCM", id: "main") {
             HomeView(model: model)
-                .frame(minWidth: 570, minHeight: 530)
+                .frame(minWidth: HomeView.windowWidth, minHeight: 300)
                 .task {
                     appDelegate.onTerminate = { model.stop() }
                     model.start()
                     await model.updates.checkIfDue()
                 }
         }
-        .defaultSize(width: 660, height: 650)
+        .defaultSize(width: HomeView.windowWidth, height: HomeView.defaultContentHeight)
+        .commands { SettingsCommands(model: model) }
 
         Window("匹配明细", id: "report") {
             ReportView(reportVersion: model.reportVersion)
@@ -24,6 +25,7 @@ struct AMNCMApp: App {
         }
         .defaultSize(width: 1120, height: 680)
         .defaultLaunchBehavior(.suppressed)
+        .commands { ReportZoomCommands() }
 
         MenuBarExtra {
             SyncMenuView(model: model)
@@ -32,12 +34,23 @@ struct AMNCMApp: App {
                 .accessibilityLabel("AM-NCM")
         }
 
-        Settings {
-            SyncSettingsView(model: model)
-        }
     }
 }
 
+private struct SettingsCommands: Commands {
+    let model: SyncModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("设置…") {
+                openWindow(id: "main")
+                model.showSettings()
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        }
+    }
+}
 
 private final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {

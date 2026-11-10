@@ -38,8 +38,6 @@ struct HomeActionView: View {
                         .controlSize(.large)
                 }
             }
-        } else if let preview = model.preview {
-            PreviewView(preview: preview, confirm: model.applyPreview, cancel: model.dismissPreview)
         } else if model.musicCount == nil {
             VStack(alignment: .leading, spacing: 10) {
                 Text("第一步 · 读取 Apple Music 资料库")
@@ -62,56 +60,6 @@ struct HomeActionView: View {
                     .buttonBorderShape(.capsule)
                     .controlSize(.large)
             }
-        } else {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(model.lastSync == nil ? "准备好同步了" : "可以再次同步")
-                    .font(.headline)
-                Text("先看看将新增哪些歌曲。网易云已有的红心都会保留。")
-                    .foregroundStyle(.secondary)
-                Button("预览同步", systemImage: "arrow.trianglehead.clockwise", action: model.prepareSync)
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .controlSize(.large)
-            }
-        }
-    }
-}
-
-private struct PreviewView: View {
-    let preview: SyncModel.Preview
-    let confirm: () -> Void
-    let cancel: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("确认同步")
-                .font(.headline)
-            Text("资料库有 \(preview.count.formatted()) 首歌，已匹配 \(preview.matched.formatted()) 首，将新增 \(preview.additions.formatted()) 首红心。")
-            if preview.review > 0 {
-                Text("\(preview.review.formatted()) 首暂时跳过，可在「匹配明细」查看原因。")
-                    .foregroundStyle(.secondary)
-            }
-            if preview.reverseCount > 0 {
-                Text("将向 Apple Music 添加 \(preview.reverseCount.formatted()) 首歌曲。")
-            }
-            if preview.reverseReview > 0 {
-                Text("有 \(preview.reverseReview.formatted()) 首新红心暂未找到可靠匹配。")
-                    .foregroundStyle(.secondary)
-            }
-            if preview.reversePaused {
-                Text("Apple Music 反向同步已暂停，请在设置中重新登录。")
-                    .foregroundStyle(.secondary)
-            }
-            Text("已匹配歌曲按添加时间排列，网易云原有红心会保留。")
-                .foregroundStyle(.secondary)
-            HStack {
-                Button("开始同步", systemImage: "arrow.trianglehead.clockwise", action: confirm)
-                    .buttonStyle(.borderedProminent)
-                Button("稍后再说", action: cancel)
-                    .buttonStyle(.bordered)
-            }
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
         }
     }
 }

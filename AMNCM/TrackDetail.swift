@@ -6,6 +6,9 @@ struct TrackDetail: View {
     var body: some View {
         Form {
             Section("Apple Music") {
+                TrackArtwork(trackID: entry.id)
+                    .id(entry.id)
+                    .padding(.vertical, 4)
                 LabeledContent("歌名", value: entry.source.title)
                 LabeledContent("艺人", value: entry.source.artist ?? "—")
                 LabeledContent("专辑", value: entry.source.album ?? "—")

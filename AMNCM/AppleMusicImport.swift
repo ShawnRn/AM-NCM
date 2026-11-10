@@ -1,6 +1,6 @@
 import Foundation
 
-struct NetEaseTrack: Decodable, Identifiable {
+struct NetEaseTrack: Decodable, Identifiable, Sendable {
     let id: String
     let title: String
     let artist: String
@@ -9,8 +9,8 @@ struct NetEaseTrack: Decodable, Identifiable {
     let duration: Double
 }
 
-struct AppleMusicImport {
-    struct Candidate {
+struct AppleMusicImport: Sendable {
+    struct Candidate: Sendable {
         let sourceID: String
         let catalogID: String
     }

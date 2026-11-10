@@ -15,12 +15,15 @@ struct SyncMenuView: View {
         }
         Divider()
         Button("打开 AM-NCM") { openWindow(id: "main") }
-        Button("预览同步") {
+        Button("手动同步") {
             openWindow(id: "main")
             model.prepareSync()
         }
         .disabled(!model.ready || model.operation != nil || model.preview != nil)
-        SettingsLink()
+        Button("设置…") {
+            openWindow(id: "main")
+            model.showSettings()
+        }
         Divider()
         Button("退出 AM-NCM") { NSApp.terminate(nil) }
             .disabled(model.operation == .sync)

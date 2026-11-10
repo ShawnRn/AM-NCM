@@ -6,6 +6,7 @@ import ServiceManagement
 final class SyncModel {
     enum Interval: Int, CaseIterable, Identifiable {
         case manual = 0
+        case fiveMinutes = 300
         case hourly = 3600
         case daily = 86400
         case weekly = 604800
@@ -14,6 +15,7 @@ final class SyncModel {
         var title: String {
             switch self {
             case .manual: "仅手动"
+            case .fiveMinutes: "每 5 分钟"
             case .hourly: "每小时"
             case .daily: "每天"
             case .weekly: "每周"
@@ -37,11 +39,13 @@ final class SyncModel {
         }
     }
 
-    struct Preview {
+    struct Preview: Identifiable {
+        let id = UUID()
         let count: Int
         let matched: Int
         let additions: Int
         let review: Int
+        let updatesOrder: Bool
         var reverseCount = 0
         var reverseReview = 0
         var reversePaused = false
@@ -60,6 +64,8 @@ final class SyncModel {
     private(set) var accountID: String?
     private(set) var operation: Operation?
     private(set) var preview: Preview?
+    private(set) var inlinePreview: Preview?
+    var showsSettings = false
     private(set) var qrImage: Data?
     private(set) var qrScanned = false
     private(set) var stage = ""
@@ -69,6 +75,8 @@ final class SyncModel {
     private(set) var lastSync: Date?
     private(set) var nextSync: Date?
     private(set) var lastAdded: Int?
+    private(set) var lastAppleAdded: Int?
+    private(set) var lastReordered = false
     private(set) var interval: Interval = .manual
     private(set) var loginItem: SMAppService.Status = .notRegistered
     private(set) var reverseEnabled = false
@@ -77,7 +85,6 @@ final class SyncModel {
     var appleConnected: Bool { appleSession != nil && !appleNeedsLogin }
     private var reverseMatches: [AppleMusicImport.Candidate] = []
     private var reverseAlreadyInLibrary: Set<String> = []
-    private var plannedLikes: [String] = []
     private(set) var hasReport = false
     private(set) var reportVersion = 0
     var error: String?
@@ -90,6 +97,8 @@ final class SyncModel {
         musicCount = defaults.object(forKey: "musicCount") as? Int
         lastSync = defaults.object(forKey: "lastSync") as? Date
         lastAdded = defaults.object(forKey: "lastAdded") as? Int
+        lastAppleAdded = defaults.object(forKey: "lastAppleAdded") as? Int
+        lastReordered = defaults.bool(forKey: "lastReordered")
         nextSync = defaults.object(forKey: "nextSync") as? Date
         interval = Interval(rawValue: defaults.integer(forKey: "interval")) ?? .manual
         loginItem = SMAppService.mainApp.status
@@ -208,20 +217,31 @@ final class SyncModel {
     }
 
     func prepareSync() {
-        guard ready, let accountID else { return }
+        guard ready, preview == nil, let accountID else { return }
         startOperation(.preview, "正在准备同步预览") {
-            try await self.buildPreview(accountID: accountID)
+            let result = try await self.buildPreview(accountID: accountID)
+            if result.additions > 0 || result.reverseCount > 0 {
+                self.preview = result
+            } else {
+                self.inlinePreview = result
+            }
         }
     }
 
     func applyPreview() {
-        guard preview != nil, let accountID else { return }
+        guard let preview = preview ?? inlinePreview, let accountID else { return }
         startOperation(.sync, "正在同步到「我喜欢的音乐」") {
-            try await self.apply(accountID: accountID)
+            self.preview = nil
+            try await self.apply(accountID: accountID, preview: preview, notifyIfUnchanged: true)
         }
     }
 
     func dismissPreview() { preview = nil }
+
+    func showSettings() {
+        guard preview == nil else { return }
+        showsSettings = true
+    }
 
     func cancel() {
         guard canCancel else { return }
@@ -273,27 +293,29 @@ final class SyncModel {
         startOperation(.sync, "已到自动同步时间") {
             // Persist a retry date before touching the remote account.
             self.updateNextSync(.now.addingTimeInterval(min(Double(self.interval.rawValue), 3600)))
-            try await self.buildPreview(accountID: accountID)
-            try await self.apply(accountID: accountID)
+            let preview = try await self.buildPreview(accountID: accountID)
+            try await self.apply(accountID: accountID, preview: preview, notifyIfUnchanged: false)
         }
     }
 
-    private func buildPreview(accountID: String) async throws {
-        preview = nil
+    private func buildPreview(accountID: String) async throws -> Preview {
         reverseMatches = []
         reverseAlreadyInLibrary = []
-        plannedLikes = []
+        var plan: EngineEvent?
         setProgress("正在读取 Apple Music 资料库")
-        try await run("scan")
-        setProgress("正在检查网易云曲目")
-        try await run("plan", account: accountID)
-        guard var result = preview else {
+        try await engine.run("scan-plan", account: accountID) { event in
+            if event.kind == "plan" { plan = event }
+            handle(event)
+        }
+        guard let plan, plan.incomplete == 0, plan.uid == accountID else {
             throw Engine.Failure("这次匹配还没完成。已保存进度，可以稍后继续。")
         }
+        var result = Preview(count: plan.count ?? 0, matched: plan.matched ?? 0,
+                             additions: plan.additions ?? 0, review: plan.review ?? 0,
+                             updatesOrder: plan.updatesOrder == true)
         if reverseEnabled {
-            preview = nil
             let seen = seenLikes(accountID: accountID)
-            let newLikes = plannedLikes.filter { !seen.contains($0) }
+            let newLikes = (plan.ids ?? []).filter { !seen.contains($0) }
             if !newLikes.isEmpty {
                 let report = try await SyncReport.load()
                 let linked = Set(report.entries.compactMap(\.targetID))
@@ -307,17 +329,8 @@ final class SyncModel {
                     }
                     if let session = appleSession, appleConnected {
                         let client = AppleMusicImport(session: session)
-                        var lastSearch: ContinuousClock.Instant?
                         do {
-                            for (index, track) in tracks.enumerated() {
-                                try Task.checkCancellation()
-                                if let lastSearch {
-                                    try await ContinuousClock().sleep(until: lastSearch + .milliseconds(500))
-                                }
-                                lastSearch = .now
-                                setProgress("正在匹配 Apple Music", completed: index + 1, total: tracks.count)
-                                if let candidate = try await client.match(track) { reverseMatches.append(candidate) }
-                            }
+                            reverseMatches = try await matchAppleMusic(tracks, client: client)
                             result.reverseCount = Set(reverseMatches.map(\.catalogID)).count
                             result.reverseReview = pending.count - reverseMatches.count
                         } catch AppleMusicImport.Failure.authorization {
@@ -333,22 +346,63 @@ final class SyncModel {
             }
         }
         try Task.checkCancellation()
-        preview = result
+        if operation == .preview { log("同步预览已准备好") }
+        return result
     }
 
-    private func apply(accountID: String) async throws {
-        let reversePaused = preview?.reversePaused == true
-        preview = nil
-        try await run("apply", account: accountID)
+    private func matchAppleMusic(_ tracks: [NetEaseTrack], client: AppleMusicImport) async throws -> [AppleMusicImport.Candidate] {
+        let batchSize = 3
+        var matches: [AppleMusicImport.Candidate] = []
+        var completed = 0
+        setProgress("正在匹配 Apple Music", completed: 0, total: tracks.count)
+        for start in stride(from: 0, to: tracks.count, by: batchSize) {
+            try Task.checkCancellation()
+            let nextBatch = ContinuousClock.now + .milliseconds(500)
+            let end = min(start + batchSize, tracks.count)
+            try await withThrowingTaskGroup(of: AppleMusicImport.Candidate?.self) { group in
+                for track in tracks[start..<end] {
+                    group.addTask { try await client.match(track) }
+                }
+                for try await candidate in group {
+                    completed += 1
+                    if let candidate { matches.append(candidate) }
+                    setProgress("正在匹配 Apple Music", completed: completed, total: tracks.count)
+                }
+            }
+            if end < tracks.count {
+                try await ContinuousClock().sleep(until: nextBatch)
+            }
+        }
+        return matches
+    }
+
+    private func apply(accountID: String, preview: Preview, notifyIfUnchanged: Bool) async throws {
+        var verifiedLikes: [String]?
+        var changed = false
+        var netEaseAdded = 0
+        var reordered = false
+        try await engine.run("apply", account: accountID) { event in
+            if event.kind == "done" {
+                verifiedLikes = event.currentIDs
+                changed = event.changed == true
+                netEaseAdded = event.additions ?? 0
+                reordered = event.reordered == true
+            }
+            handle(event)
+        }
         guard reverseEnabled else {
-            markSyncComplete()
+            markSyncComplete(netEaseAdded: netEaseAdded, appleAdded: nil, reordered: reordered,
+                             notify: changed || notifyIfUnchanged)
             return
         }
-        if reversePaused { throw AppleMusicImport.Failure.authorization }
-        let current = Set(try await currentLikes(accountID: accountID))
-        var seen = seenLikes(accountID: accountID).intersection(current)
+        if preview.reversePaused { throw AppleMusicImport.Failure.authorization }
+        guard let verifiedLikes else { throw Engine.Failure("未收到网易云红心的核验结果，请重试。") }
+        let current = Set(verifiedLikes)
+        let previous = seenLikes(accountID: accountID)
+        var seen = previous.intersection(current)
         seen.formUnion(reverseAlreadyInLibrary.intersection(current))
-        saveSeen(seen, accountID: accountID)
+        if seen != previous { saveSeen(seen, accountID: accountID) }
+        var appleAdded = 0
         if let session = appleSession, appleConnected {
             let client = AppleMusicImport(session: session)
             let matches = reverseMatches.filter { current.contains($0.sourceID) }
@@ -362,12 +416,14 @@ final class SyncModel {
                     let missing = batch.filter { !confirmed.contains($0) }
                     if !missing.isEmpty {
                         try await client.add(missing)
+                        changed = true
                         setProgress("正在核对 Apple Music 资料库")
                         for attempt in 0..<4 {
                             if attempt > 0 { try await Task.sleep(for: .seconds(2)) }
                             confirmed.formUnion(try await client.confirmed(missing))
                             if missing.allSatisfy(confirmed.contains) { break }
                         }
+                        appleAdded += missing.count
                     }
                     verified.formUnion(confirmed)
                     seen.formUnion(matches.filter { confirmed.contains($0.catalogID) }.map(\.sourceID))
@@ -383,7 +439,8 @@ final class SyncModel {
                 throw Engine.Failure("Apple Music 尚未显示全部歌曲，下次同步会再次核对。")
             }
         }
-        markSyncComplete()
+        markSyncComplete(netEaseAdded: netEaseAdded, appleAdded: appleAdded, reordered: reordered,
+                         notify: changed || notifyIfUnchanged)
     }
 
     private func run(_ action: String, account: String? = nil) async throws {
@@ -392,6 +449,7 @@ final class SyncModel {
 
     private func startOperation(_ operation: Operation, _ text: String, quietly: Bool = false, work: @escaping @MainActor () async throws -> Void) {
         guard self.operation == nil else { return }
+        inlinePreview = nil
         error = nil
         self.operation = operation
         setProgress(text)
@@ -468,33 +526,33 @@ final class SyncModel {
                 log("已读取 \(count) 首 Apple Music 歌曲")
             }
         case "plan":
-            plannedLikes = event.ids ?? []
             hasReport = true
             reportVersion += 1
-            if event.incomplete == 0, event.uid == accountID {
-                preview = Preview(count: event.count ?? 0, matched: event.matched ?? 0,
-                                  additions: event.additions ?? 0, review: event.review ?? 0)
-                log("同步预览已准备好")
-            }
         case "done":
-            if reverseEnabled, let accountID {
-                saveSeen(seenLikes(accountID: accountID).union(event.ids ?? []), accountID: accountID)
+            if reverseEnabled, let accountID, let added = event.ids, !added.isEmpty {
+                saveSeen(seenLikes(accountID: accountID).union(added), accountID: accountID)
             }
             reportVersion += 1
-            lastAdded = event.additions
-            defaults.set(lastAdded, forKey: "lastAdded")
-            log("已核对网易云 \(event.count ?? 0) 首歌曲的顺序")
+            log("已核对网易云 \((event.count ?? 0).formatted()) 首歌曲的顺序")
         default:
             break
         }
     }
 
-    private func markSyncComplete() {
+    private func markSyncComplete(netEaseAdded: Int, appleAdded: Int?, reordered: Bool, notify: Bool) {
         lastSync = .now
+        lastAdded = netEaseAdded
+        lastAppleAdded = appleAdded
+        lastReordered = reordered
         defaults.set(lastSync, forKey: "lastSync")
+        defaults.set(netEaseAdded, forKey: "lastAdded")
+        defaults.set(appleAdded, forKey: "lastAppleAdded")
+        defaults.set(reordered, forKey: "lastReordered")
         if interval != .manual { updateNextSync(.now.addingTimeInterval(Double(interval.rawValue))) }
         log("同步完成")
-        notifications.deliver(.success, title: "同步完成", body: "已核对本次同步结果。")
+        if notify {
+            notifications.deliver(.success, title: "同步完成", body: "已核对本次同步结果。")
+        }
     }
 
     private func updateNextSync(_ date: Date?) {

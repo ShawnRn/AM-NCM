@@ -13,7 +13,11 @@ struct EngineEvent: Decodable {
     let additions: Int?
     let review: Int?
     let incomplete: Int?
+    let updatesOrder: Bool?
+    let changed: Bool?
+    let reordered: Bool?
     let ids: [String]?
+    let currentIDs: [String]?
     let tracks: [NetEaseTrack]?
 }
 

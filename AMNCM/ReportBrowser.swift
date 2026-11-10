@@ -29,9 +29,12 @@ struct ReportBrowser: View {
     }
 
     let report: SyncReport
+    let reload: () -> Void
     @State private var scope: Scope? = .review
     @State private var selection: SyncReport.Entry.ID?
     @State private var query = ""
+    @FocusState private var searchFocused: Bool
+    @AppStorage("reportZoom") private var zoom = 0
 
     private var filteredEntries: [SyncReport.Entry] {
         let scope = scope ?? .all
@@ -59,17 +62,49 @@ struct ReportBrowser: View {
             }
             .navigationSplitViewColumnWidth(min: 155, ideal: 175)
         } content: {
-            TrackTable(entries: entries, selection: $selection)
-                .navigationTitle(scope?.rawValue ?? Scope.all.rawValue)
-                .navigationSubtitle(report.target.name)
-                .searchable(text: $query, prompt: "搜索歌名、艺人或专辑")
-                .navigationSplitViewColumnWidth(min: 395, ideal: 595)
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Button("搜索", systemImage: "magnifyingglass") { searchFocused = true }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .keyboardShortcut("f")
+                        TextField("搜索歌名、艺人或专辑", text: $query)
+                            .textFieldStyle(.plain)
+                            .focused($searchFocused)
+                        if !query.isEmpty {
+                            Button("清除搜索", systemImage: "xmark.circle.fill") { query = "" }
+                                .labelStyle(.iconOnly)
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 6)
+                    .background(.quaternary.opacity(0.65), in: RoundedRectangle(cornerRadius: 7))
+                    Button("重新载入", systemImage: "arrow.clockwise", action: reload)
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.bordered)
+                        .keyboardShortcut("r")
+                        .help("重新载入匹配报告")
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                Divider()
+                TrackTable(entries: entries, selection: $selection, fontSize: CGFloat(13 + min(max(zoom, -1), 1) * 2))
+            }
+            .navigationTitle(scope?.rawValue ?? Scope.all.rawValue)
+            .navigationSubtitle(report.target.name)
+            .navigationSplitViewColumnWidth(min: 395, ideal: 595)
         } detail: {
             if let entry = entries.first(where: { $0.id == selection }) {
                 TrackDetail(entry: entry)
             } else {
-                ContentUnavailableView("选择一首曲目", systemImage: "music.note", description: Text("查看 Apple Music 元数据与网易云候选。"))
+                ContentUnavailableView(entries.isEmpty ? "没有曲目可显示" : "选择一首曲目", systemImage: "music.note")
             }
         }
+        .focusedSceneValue(\.reportZoom, $zoom)
+        .onAppear { zoom = min(max(zoom, -1), 1) }
     }
 }

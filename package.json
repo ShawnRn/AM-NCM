@@ -1,6 +1,7 @@
 {
   "name": "am-ncm",
   "version": "1.0.0",
+  "license": "MIT",
   "description": "在本机把 Apple Music「资料库 → 歌曲」按添加日期从新到旧整理，目标是同步到网易云音乐现有的「我喜欢的音乐」。",
   "dependencies": {
     "@neteasecloudmusicapienhanced/api": "4.41.1"
