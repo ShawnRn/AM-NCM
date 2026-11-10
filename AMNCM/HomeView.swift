@@ -9,6 +9,7 @@ struct HomeView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showAppleLogin = false
     @State private var contentHeight: CGFloat = 0
+    @State private var currentDate = Date.now
 
     private enum Sheet: Identifiable {
         case appleLogin, settings, confirmation(SyncModel.Preview)
@@ -119,6 +120,9 @@ struct HomeView: View {
             }
         }
         .background(HomeWindowSizing(height: contentHeight, animate: !reduceMotion))
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
+            currentDate = .now
+        }
         .toolbar {
             Button("匹配明细", systemImage: "list.bullet.rectangle") { openWindow(id: "report") }
                 .disabled(!model.hasReport)
@@ -168,7 +172,9 @@ struct HomeView: View {
     }
 
     private func formattedSyncDate(_ date: Date) -> String {
-        ChineseInterfaceText.format(date.formatted(.dateTime.month().day().hour().minute()))
+        let time = Date.FormatStyle.dateTime.hour().minute()
+        let style = Calendar.current.isDate(date, inSameDayAs: currentDate) ? time : time.month().day()
+        return ChineseInterfaceText.format(date.formatted(style))
     }
 
     private func dismissSheet() {

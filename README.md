@@ -65,3 +65,8 @@ node ncm.cjs apply
 Made with ❤️ by Shawn Rain (feat. Codex)
 
 项目源码采用 [MIT 许可证](LICENSE)。随 App 分发的第三方组件适用各自的许可证。
+
+## 致谢
+
+- 网易云登录、曲库搜索和歌单操作使用 [NeteaseCloudMusicApiEnhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced)。
+- DMG 安装镜像使用 [Sindre Sorhus 的 create-dmg](https://github.com/sindresorhus/create-dmg) 和它内置的箭头模板。

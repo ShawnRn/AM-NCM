@@ -119,7 +119,6 @@ struct SyncSettingsView: View {
                     Button("断开 Apple Music", action: model.disconnectAppleMusic)
                         .disabled(model.operation != nil)
                 }
-                Divider()
                 LabeledContent("网易云音乐", value: model.accountName ?? "未登录")
                 Button(model.accountID == nil ? "扫码登录" : "重新扫码登录") {
                     dismiss()

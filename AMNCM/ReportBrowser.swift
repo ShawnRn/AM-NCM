@@ -34,6 +34,7 @@ struct ReportBrowser: View {
     @State private var selection: SyncReport.Entry.ID?
     @State private var query = ""
     @FocusState private var searchFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("reportZoom") private var zoom = 0
 
     private var filteredEntries: [SyncReport.Entry] {
@@ -93,6 +94,7 @@ struct ReportBrowser: View {
                 .padding(.vertical, 8)
                 Divider()
                 TrackTable(entries: entries, selection: $selection, fontSize: CGFloat(13 + min(max(zoom, -1), 1) * 2))
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: zoom)
             }
             .navigationTitle(scope?.rawValue ?? Scope.all.rawValue)
             .navigationSubtitle(report.target.name)
