@@ -140,13 +140,17 @@ final class SyncModel {
             cancel()
             return
         }
-        guard let accountID, operation == nil, preview == nil else { return }
+        guard let accountID, operation == nil, preview == nil else {
+            error = "暂时无法更改双向同步，请在首页检查账号和同步状态后重试。"
+            return
+        }
         if !enabled {
             defaults.removeObject(forKey: reverseKey(accountID))
             reverseEnabled = false
             log("已关闭双向同步")
             return
         }
+        guard !reverseEnabled else { return }
         guard appleConnected else {
             error = "请先连接 Apple Music，再开启双向同步。"
             return

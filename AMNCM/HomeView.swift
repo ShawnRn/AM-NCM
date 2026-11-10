@@ -3,6 +3,14 @@ import SwiftUI
 struct HomeView: View {
     let model: SyncModel
     @Environment(\.openWindow) private var openWindow
+    @State private var showAppleLogin = false
+
+    private var appleMusicDetail: String {
+        let library = model.musicCount.map { "\($0.formatted()) 首歌曲" } ?? "等待读取本机资料库"
+        if model.appleConnected { return library }
+        let login = model.appleNeedsLogin ? "双向同步需要重新登录" : "登录后可开启双向同步"
+        return "\(library) · \(login)"
+    }
 
     var body: some View {
         ScrollView {
@@ -10,9 +18,17 @@ struct HomeView: View {
                 HeaderView()
 
                 VStack(spacing: 14) {
-                    ConnectionRow(title: "Apple Music", symbol: "music.note", tint: .pink,
-                                  detail: model.musicCount.map { "\($0.formatted()) 首歌曲" } ?? "读取 Mac 上的音乐资料库",
-                                  connected: model.musicCount != nil)
+                    HStack(spacing: 12) {
+                        ConnectionRow(title: "Apple Music", symbol: "music.note", tint: .pink,
+                                      detail: appleMusicDetail, connected: model.appleConnected)
+                        if !model.appleConnected {
+                            Button(model.appleNeedsLogin ? "重新登录 Apple Music" : "登录 Apple Music") {
+                                showAppleLogin = true
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(model.operation != nil)
+                        }
+                    }
                     Divider()
                     ConnectionRow(title: "网易云音乐", symbol: "heart.fill", tint: .red,
                                   detail: model.accountName ?? "同步到「我喜欢的音乐」",
@@ -63,6 +79,9 @@ struct HomeView: View {
             Button("匹配明细", systemImage: "list.bullet.rectangle") { openWindow(id: "report") }
                 .disabled(!model.hasReport)
             SettingsLink()
+        }
+        .sheet(isPresented: $showAppleLogin) {
+            AppleMusicLoginView(connected: model.connectAppleMusic)
         }
     }
 }

@@ -42,11 +42,11 @@ struct HomeActionView: View {
             PreviewView(preview: preview, confirm: model.applyPreview, cancel: model.dismissPreview)
         } else if model.musicCount == nil {
             VStack(alignment: .leading, spacing: 10) {
-                Text("第一步 · 连接 Apple Music")
+                Text("第一步 · 读取 Apple Music 资料库")
                     .font(.headline)
                 Text("请在 Mac 的音乐 App 中登录并打开资料库。出现系统提示时，选择「允许」。")
                     .foregroundStyle(.secondary)
-                Button("连接 Apple Music", systemImage: "music.note", action: model.connectMusic)
+                Button("读取资料库", systemImage: "music.note", action: model.connectMusic)
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.capsule)
                     .controlSize(.large)

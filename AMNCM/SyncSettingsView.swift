@@ -4,11 +4,17 @@ struct SyncSettingsView: View {
     let model: SyncModel
     @Environment(\.openWindow) private var openWindow
     @State private var confirmLogout = false
-    @State private var showAppleLogin = false
+    @State private var appleLogin: AppleLoginPurpose?
     @State private var scrollOnOpen = true
     private static let title = "「AM-NCM」设置"
     @State private var position = ScrollPosition(edge: .top)
     @Environment(\.controlActiveState) private var activeState
+
+    private enum AppleLoginPurpose: Identifiable {
+        case account, enableReverse
+
+        var id: Self { self }
+    }
 
     var body: some View {
         settingsForm
@@ -31,15 +37,19 @@ struct SyncSettingsView: View {
     private var settingsForm: some View {
         Form {
             Section("同步") {
-                Toggle("双向同步", isOn: Binding(get: { model.reverseSwitchOn }, set: model.setReverseEnabled))
+                Toggle("双向同步", isOn: Binding(get: { model.reverseSwitchOn }, set: setReverseEnabled))
                     .disabled(!model.ready || (model.operation != nil && model.operation != .enablingReverse)
-                              || model.preview != nil || (!model.appleConnected && !model.reverseSwitchOn))
+                              || model.preview != nil)
                 if model.operation == .enablingReverse {
                     ProgressView("正在记录现有红心，完成后开始双向同步")
                         .controlSize(.small)
                 }
-                Text("开启后，网易云新增的红心会同步到 Apple Music 资料库。")
+                Text(reverseSyncDescription)
                     .foregroundStyle(.secondary)
+                if let error = model.error {
+                    Label(error, systemImage: "exclamationmark.circle")
+                        .foregroundStyle(.red)
+                }
                 Picker("同步周期", selection: Binding(get: { model.interval }, set: model.setInterval)) {
                     ForEach(SyncModel.Interval.allCases) { interval in
                         Text(interval.title).tag(interval)
@@ -96,7 +106,7 @@ struct SyncSettingsView: View {
             Section("账号") {
                 LabeledContent("Apple Music", value: model.appleConnected ? "已连接" : (model.appleNeedsLogin ? "需要重新登录" : "未登录"))
                 Button(model.appleConnected ? "重新登录 Apple Music" : "登录 Apple Music") {
-                    showAppleLogin = true
+                    appleLogin = .account
                 }
                 .disabled(model.operation != nil)
                 if model.appleConnected {
@@ -115,23 +125,42 @@ struct SyncSettingsView: View {
                         .disabled(model.operation != nil)
                 }
             }
-            if let error = model.error {
-                Label(error, systemImage: "exclamationmark.circle")
-                    .foregroundStyle(.red)
-            }
         }
         .confirmationDialog("退出网易云音乐？", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("退出登录", role: .destructive, action: model.logout)
         } message: {
             Text("退出后会暂停自动同步。再次同步时需要扫码。")
         }
-        .sheet(isPresented: $showAppleLogin) {
-            AppleMusicLoginView(connected: model.connectAppleMusic)
+        .sheet(item: $appleLogin) { purpose in
+            AppleMusicLoginView { session in
+                try model.connectAppleMusic(session)
+                if purpose == .enableReverse {
+                    model.setReverseEnabled(true)
+                }
+            }
         }
         .navigationTitle(Self.title)
         .formStyle(.grouped)
         .frame(width: 480)
 
+    }
+
+    private var reverseSyncDescription: String {
+        if !model.ready { return "请先在首页读取 Apple Music 资料库并登录网易云音乐。" }
+        if model.preview != nil { return "请先在首页完成或关闭当前同步预览。" }
+        if !model.appleConnected {
+            if model.reverseSwitchOn { return "反向同步已暂停，请在「账号」中登录 Apple Music。" }
+            return "打开开关后，先登录 Apple Music。之后新增的网易云红心会同步到 Apple Music 资料库。"
+        }
+        return "开启后，网易云新增的红心会同步到 Apple Music 资料库。"
+    }
+
+    private func setReverseEnabled(_ enabled: Bool) {
+        if enabled && !model.appleConnected {
+            appleLogin = .enableReverse
+        } else {
+            model.setReverseEnabled(enabled)
+        }
     }
 
     private func scrollToTopIfNeeded() {
