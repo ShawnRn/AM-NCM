@@ -5,9 +5,30 @@ struct SyncSettingsView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var confirmLogout = false
     @State private var showAppleLogin = false
+    @State private var scrollOnOpen = true
+    private static let title = "「AM-NCM」设置"
+    @State private var position = ScrollPosition(edge: .top)
     @Environment(\.controlActiveState) private var activeState
 
     var body: some View {
+        settingsForm
+            .scrollPosition($position)
+            .onAppear {
+                refreshSettings()
+                scrollToTopIfNeeded()
+            }
+            .onChange(of: activeState) { _, state in
+                refreshSettings()
+                if state == .key { scrollToTopIfNeeded() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { notification in
+                if (notification.object as? NSWindow)?.title == Self.title {
+                    scrollOnOpen = true
+                }
+            }
+    }
+
+    private var settingsForm: some View {
         Form {
             Section("同步") {
                 Toggle("双向同步", isOn: Binding(get: { model.reverseSwitchOn }, set: model.setReverseEnabled))
@@ -107,13 +128,16 @@ struct SyncSettingsView: View {
         .sheet(isPresented: $showAppleLogin) {
             AppleMusicLoginView(connected: model.connectAppleMusic)
         }
-        .navigationTitle("「AM-NCM」设置")
+        .navigationTitle(Self.title)
         .formStyle(.grouped)
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.capsule)
         .frame(width: 480)
-        .onAppear(perform: refreshSettings)
-        .onChange(of: activeState) { _, _ in refreshSettings() }
+
+    }
+
+    private func scrollToTopIfNeeded() {
+        guard scrollOnOpen else { return }
+        scrollOnOpen = false
+        position.scrollTo(edge: .top)
     }
 
     private func refreshSettings() {
