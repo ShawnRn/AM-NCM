@@ -25,7 +25,11 @@ function credit(song) {
     const feature = title.match(/\s*[\[(]\s*(?:feat\.?|ft\.?)\s+([^)\]]+)[)\]]\s*$/iu);
     const artists = [...new Set(artistNames([song.artist, feature?.[1]].filter(Boolean).join(", ")).split("|"))]
         .filter(Boolean).join("|");
-    return { title: normalized(feature ? title.slice(0, feature.index) : title), artists };
+    return {
+        title: normalized(feature ? title.slice(0, feature.index) : title),
+        artists,
+        featured: feature ? artistNames(feature[1]).split("|").filter(Boolean) : [],
+    };
 }
 
 function venueVersion(title, album) {
@@ -66,6 +70,22 @@ function compare(source, target) {
 
 function decide(source, candidates, existingOnly = false) {
     let exact = candidates.filter(song => compare(source, song));
+    if (!exact.length && existingOnly) {
+        const sourceCredit = credit(source);
+        const sourceAlbum = albumName(source.album);
+        const primary = normalized(source.artist);
+        if (sourceCredit.featured.length && sourceAlbum && primary) {
+            exact = candidates.filter(song => {
+                const targetCredit = credit(song);
+                const targetPrimary = normalized(song.artist?.split(", ", 1)[0]);
+                const targetArtists = new Set(targetCredit.artists.split("|"));
+                return sourceCredit.title === targetCredit.title && primary === targetPrimary
+                    && sourceAlbum === albumName(song.album)
+                    && Math.abs(source.duration - song.duration) <= 2.5
+                    && sourceCredit.featured.every(artist => targetArtists.has(artist));
+            });
+        }
+    }
     // A copy already favorited is a strong tie-breaker across ordinary releases.
     if (!exact.length && existingOnly && !version.test(key(source)) && !version.test(albumName(source.album))) {
         exact = candidates.filter(song => key(source) === key(song)
