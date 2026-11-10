@@ -105,7 +105,7 @@ function writeReport(report) {
     renameSync(temp, reportPath);
 }
 
-function catalogClient(request, output) {
+function catalogClient(request, output, event) {
     let next = 0;
     let pausedUntil = 0;
     return async (method, params) => {
@@ -121,7 +121,11 @@ function catalogClient(request, output) {
             } catch (error) {
                 if (attempt === 2 || !/（(?:405|429|50[024])）/.test(error.message)) throw error;
                 const until = Date.now() + (attempt === 0 ? 30000 : 60000);
-                if (pausedUntil <= Date.now()) output("网易云暂时限制搜索，已暂停后续请求。");
+                if (pausedUntil <= Date.now()) {
+                    const text = "网易云暂时限制搜索，稍等后自动重试";
+                    event("waiting", { text });
+                    if (!process.env.AMNCM_EMBEDDED) output(text);
+                }
                 pausedUntil = Math.max(pausedUntil, until);
             }
         }
@@ -196,7 +200,8 @@ async function verifyCatalog(entries, current, request) {
     }
 }
 
-async function plan(db, songs, target, limit, request, output) {
+async function plan(db, songs, target, limit, request, output, event) {
+    event("progress", { text: "正在读取网易云的喜欢歌单" });
     const index = new Map();
     const readDetails = db.prepare("SELECT metadata FROM netease_detail WHERE id = ?");
     const storeDetails = db.prepare("INSERT OR REPLACE INTO netease_detail VALUES (?, ?)");
@@ -233,7 +238,7 @@ async function plan(db, songs, target, limit, request, output) {
     const read = db.prepare("SELECT result FROM netease_match WHERE fingerprint = ?");
     const write = db.prepare("INSERT OR REPLACE INTO netease_match VALUES (?, ?)");
     const entries = [];
-    const catalog = catalogClient(request, output);
+    const catalog = catalogClient(request, output, event);
     const groups = new Map();
     const groupKey = source => JSON.stringify([albumName(source.album), artistNames(source.artist)]);
     for (const source of songs) {
@@ -302,6 +307,7 @@ async function plan(db, songs, target, limit, request, output) {
         }
         return { source, ...result };
     };
+    event("progress", { text: "正在匹配歌曲", completed: 0, total: songs.length });
     let lastProgress = 0;
     let consecutiveFailures = 0;
     const size = limit === Infinity ? 4 : 1;
@@ -313,9 +319,10 @@ async function plan(db, songs, target, limit, request, output) {
             output("网易云连续拒绝搜索，剩余曲目先使用本地缓存与红心匹配。");
             limit = queries;
         }
-        if (entries.length - lastProgress >= 100) {
+        if (entries.length - lastProgress >= 20 || entries.length === songs.length) {
             lastProgress = entries.length;
-            output(`已处理 ${entries.length}/${songs.length} 首，搜索 ${queries} 首曲目、${albumQueries} 组专辑。`);
+            if (event) event("progress", { text: "正在匹配歌曲", completed: entries.length, total: songs.length });
+            if (entries.length % 100 === 0) output(`已处理 ${entries.length}/${songs.length} 首。`);
         }
     }
     const current = new Set(target.tracks);
@@ -338,8 +345,13 @@ async function plan(db, songs, target, limit, request, output) {
         targetOnly: desired.length - ordered.length,
     };
     writeReport({ sourceDigest: digest(songs), target, additions, desired, stats, entries });
-    output(JSON.stringify(stats));
-    output(reportPath);
+    event("plan", { count: songs.length, matched: stats.matched, additions: additions.length,
+        review: stats.review + stats.missing + stats.unavailable, incomplete: stats.failed + stats.pending,
+        uid: target.uid });
+    if (!process.env.AMNCM_EMBEDDED) {
+        output(JSON.stringify(stats));
+        output(reportPath);
+    }
 }
 
 async function reconcileCatalogIds(report, tracks, request, output) {
@@ -395,7 +407,7 @@ function onlyRedirectedPositionsDiffer(tracks, report) {
         && sameOrder(tracks.filter(id => !redirected.has(id)), report.desired.filter(id => !redirected.has(id)));
 }
 
-async function apply(songs, target, request, favorites, output, pilot) {
+async function apply(songs, target, request, favorites, output, pilot, event) {
     const savedReport = readFileSync(reportPath, "utf8");
     const report = JSON.parse(savedReport);
     if ((!pilot && (report.stats.pending || report.stats.failed)) || report.sourceDigest !== digest(songs)
@@ -435,9 +447,11 @@ async function apply(songs, target, request, favorites, output, pilot) {
     const backupPath = join(directory, `netease-before-${Date.now()}.json`);
     writeFileSync(backupPath, JSON.stringify(target) + "\n", { mode: 0o600, flag: "wx" });
     output(`原始曲目顺序已备份到 ${backupPath}`);
+    event("progress", { text: "正在添加红心", completed: 0, total: pending.length });
     for (let start = 0; start < pending.length; start += 40) {
         const tracks = pending.slice(start, start + 40).join(",");
         await request("playlist_tracks", { op: "add", pid: target.id, tracks });
+        event("progress", { text: "正在添加红心", completed: Math.min(start + 40, pending.length), total: pending.length });
         await delay(500);
     }
     const updated = await favorites();
@@ -454,8 +468,10 @@ async function apply(songs, target, request, favorites, output, pilot) {
             && !sameOrder(updated.tracks.filter(id => original.has(id)), report.target.tracks)) {
             throw new Error("添加红心期间歌单顺序发生变化，请重新生成计划。");
         }
+        event("progress", { text: "正在调整歌曲顺序" });
         await request("song_order_update", { pid: target.id, ids: JSON.stringify(report.desired.map(Number)) });
     }
+    event("progress", { text: "正在核对同步结果" });
     let verified = await favorites();
     if (verified.id === target.id && !sameOrder(verified.tracks, report.desired)
         && onlyRedirectedPositionsDiffer(verified.tracks, report)) {
@@ -472,6 +488,7 @@ async function apply(songs, target, request, favorites, output, pilot) {
         throw new Error("网易云回读的红心集合与歌单成员不一致。");
     }
     if (reconciled && !pilot && readFileSync(reportPath, "utf8") === savedReport) writeReport(report);
+    event("done", { count: verified.tracks.length, additions: pending.length });
     output(`已核实网易云红心集合和歌单顺序，共 ${verified.tracks.length} 首，本次新增红心 ${pending.length} 首。`);
 }
 
@@ -495,7 +512,7 @@ function showReport(args, output) {
     }
 }
 
-async function run(command, args, { request, favorites, output }) {
+async function run(command, args, { request, favorites, output, event = () => {} }) {
     if (command === "report") return showReport(args, output);
     const { values } = parseArgs({ args, options: { limit: { type: "string" }, pilot: { type: "string" } } });
     const limit = values.limit === undefined ? Infinity : Number(values.limit);
@@ -521,8 +538,11 @@ async function run(command, args, { request, favorites, output }) {
             WHERE p.kind = 'library' ORDER BY m.position`).all();
         if (!songs.length) throw new Error("资料库快照为空，请先运行 python3 am2ncm.py scan。");
         const target = await favorites();
-        if (command === "plan") await plan(db, songs, target, limit, request, output);
-        else await apply(songs, target, request, favorites, output, pilot);
+        if (process.env.AMNCM_EXPECTED_UID && target.uid !== process.env.AMNCM_EXPECTED_UID) {
+            throw new Error("网易云登录账号已更换，请在 App 内重新连接。");
+        }
+        if (command === "plan") await plan(db, songs, target, limit, request, output, event);
+        else await apply(songs, target, request, favorites, output, pilot, event);
     } finally {
         db.close();
         lock?.close();

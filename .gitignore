@@ -3,3 +3,14 @@ __pycache__/
 *.sqlite3-*
 
 node_modules/
+
+.DS_Store
+DerivedData/
+xcuserdata/
+
+.env
+.env.*
+.npmrc
+netease-plan.json
+netease-overrides.json
+netease-before-*.json

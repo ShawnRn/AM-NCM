@@ -8,6 +8,11 @@ const output = console.log.bind(console);
 for (const method of ["log", "info", "warn", "error", "debug"]) console[method] = () => {};
 const api = require("@neteasecloudmusicapienhanced/api");
 const service = "local.am-ncm.netease";
+const embedded = process.env.AMNCM_EMBEDDED === "1";
+const event = (kind, fields = {}) => {
+    if (embedded) output(JSON.stringify({ kind, ...fields }));
+};
+const message = text => embedded ? event("message", { text }) : output(text);
 
 function saveCookie(cookie) {
     const encoded = Buffer.from(cookie).toString("base64");
@@ -26,7 +31,7 @@ function readCookie() {
     const result = spawnSync("/usr/bin/security", [
         "find-generic-password", "-s", service, "-a", "session", "-w",
     ], { encoding: "utf8" });
-    if (result.status !== 0) throw new Error("请先运行 node ncm.cjs login。");
+    if (result.status !== 0) throw new Error(embedded ? "请先扫码登录网易云音乐。" : "请先运行 node ncm.cjs login。");
     sessionCookie = Buffer.from(result.stdout.trim(), "base64").toString();
     return sessionCookie;
 }
@@ -36,11 +41,14 @@ async function login() {
     const key = body?.data?.unikey;
     if (!key) throw new Error("网易云没有返回登录二维码。");
     const qr = await api.login_qr_create({ key, qrimg: true });
-    const folder = mkdtempSync(join(tmpdir(), "am-ncm-"));
-    const path = join(folder, "login.png");
-    writeFileSync(path, Buffer.from(qr.body.data.qrimg.split(",")[1], "base64"), { mode: 0o600 });
-    spawnSync("/usr/bin/open", [path]);
-    output(path);
+    const folder = embedded ? null : mkdtempSync(join(tmpdir(), "am-ncm-"));
+    if (embedded) event("qr", { data: qr.body.data.qrimg.split(",")[1] });
+    else {
+        const path = join(folder, "login.png");
+        writeFileSync(path, Buffer.from(qr.body.data.qrimg.split(",")[1], "base64"), { mode: 0o600 });
+        spawnSync("/usr/bin/open", [path]);
+        output(path);
+    }
     try {
         for (let attempt = 0; attempt < 80; attempt++) {
             await delay(2500);
@@ -51,15 +59,16 @@ async function login() {
                 continue;
             }
             if (check.code === 800) break;
+            if (check.code === 802) event("scanned");
             if (check.code === 803 && check.cookie) {
                 saveCookie(check.cookie);
-                output("网易云已登录，凭证已写入 macOS 钥匙串。");
+                message("网易云已登录");
                 return;
             }
         }
-        throw new Error("二维码已过期，请重新运行登录命令。");
+        throw new Error("二维码已过期，请重新扫码登录。");
     } finally {
-        rmSync(folder, { recursive: true, force: true });
+        if (folder) rmSync(folder, { recursive: true, force: true });
     }
 }
 
@@ -97,9 +106,28 @@ async function favorites() {
     return { uid: String(uid), id: String(target.id), name: detail.name, tracks, reportedCount: detail.trackCount };
 }
 
+async function account() {
+    const { data } = await request("login_status", {});
+    if (!data?.profile?.userId) throw new Error("网易云登录已过期，请重新扫码。");
+    return { uid: String(data.profile.userId), name: data.profile.nickname ?? "网易云音乐" };
+}
+
 async function main() {
     const command = process.argv[2];
-    if (command === "login") await login();
+    if (command === "login") {
+        await login();
+        if (embedded) event("account", await account());
+    } else if (command === "account") event("account", await account());
+    else if (command === "scan") event("library", { count: require("./scan.cjs").scan() });
+    else if (command === "logout" && embedded) {
+        const result = spawnSync("/usr/bin/security", ["delete-generic-password", "-s", service, "-a", "session"], {
+            encoding: "utf8",
+        });
+        if (result.status !== 0 && !result.stderr?.includes("could not be found")) {
+            throw new Error("暂时无法清除网易云登录，请重试。");
+        }
+        event("logout");
+    }
     else if (command === "favorites") output(JSON.stringify(await favorites()));
     else if (command === "check") {
         const target = await favorites();
@@ -113,11 +141,13 @@ async function main() {
         }));
     }
     else if (["plan", "apply", "report"].includes(command)) {
-        await require("./sync.cjs").run(command, process.argv.slice(3), {request, favorites, output});
+        await require("./sync.cjs").run(command, process.argv.slice(3), {request, favorites, output: message, event});
     } else throw new Error("用法：node ncm.cjs login | plan | apply | report | check");
 }
 
 main().catch(error => {
-    process.stderr.write((error instanceof Error ? error.message : "网易云请求失败。") + "\n");
+    const text = error instanceof Error ? error.message : "网易云暂时无法连接，请重试。";
+    if (embedded) event("error", { text });
+    else process.stderr.write(text + "\n");
     process.exitCode = 1;
 });
