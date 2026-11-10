@@ -109,6 +109,8 @@ struct SyncSettingsView: View {
         }
         .navigationTitle("「AM-NCM」设置")
         .formStyle(.grouped)
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
         .frame(width: 480)
         .onAppear(perform: refreshSettings)
         .onChange(of: activeState) { _, _ in refreshSettings() }

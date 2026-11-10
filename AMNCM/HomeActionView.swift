@@ -33,6 +33,9 @@ struct HomeActionView: View {
 
                 if model.canCancel {
                     Button("取消", action: model.cancel)
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.large)
                 }
             }
         } else if let preview = model.preview {
@@ -45,6 +48,7 @@ struct HomeActionView: View {
                     .foregroundStyle(.secondary)
                 Button("连接 Apple Music", systemImage: "music.note", action: model.connectMusic)
                     .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
                     .controlSize(.large)
             }
         } else if model.accountID == nil {
@@ -55,6 +59,7 @@ struct HomeActionView: View {
                     .foregroundStyle(.secondary)
                 Button("扫码登录", systemImage: "qrcode", action: model.login)
                     .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
                     .controlSize(.large)
             }
         } else {
@@ -65,6 +70,7 @@ struct HomeActionView: View {
                     .foregroundStyle(.secondary)
                 Button("预览同步", systemImage: "arrow.trianglehead.clockwise", action: model.prepareSync)
                     .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
                     .controlSize(.large)
             }
         }

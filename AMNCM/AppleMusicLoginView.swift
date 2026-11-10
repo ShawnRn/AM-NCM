@@ -17,6 +17,8 @@ struct AppleMusicLoginView: View {
                 Spacer()
                 Button("关闭") { dismiss() }
             }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
         }
         .padding(16)
         .frame(minWidth: 800, minHeight: 620)
