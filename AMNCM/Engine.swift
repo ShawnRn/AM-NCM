@@ -13,6 +13,8 @@ struct EngineEvent: Decodable {
     let additions: Int?
     let review: Int?
     let incomplete: Int?
+    let ids: [String]?
+    let tracks: [NetEaseTrack]?
 }
 
 @MainActor
@@ -25,7 +27,7 @@ final class Engine {
         if process?.isRunning == true { process?.terminate() }
     }
 
-    func run(_ action: String, account: String? = nil, receive: (EngineEvent) -> Void) async throws {
+    func run(_ action: String, account: String? = nil, ids: [String] = [], receive: (EngineEvent) -> Void) async throws {
         guard process == nil else { throw Failure("已有任务正在运行。") }
         guard let resources = Bundle.main.resourceURL,
               let helpers = Bundle.main.url(forAuxiliaryExecutable: "node")
@@ -37,7 +39,7 @@ final class Engine {
         let reader = pipe.fileHandleForReading
         let (chunks, continuation) = AsyncStream<Data>.makeStream()
         task.executableURL = helpers
-        task.arguments = [resources.appending(path: "Engine/ncm.cjs").path, action]
+        task.arguments = [resources.appending(path: "Engine/ncm.cjs").path, action] + ids
         var environment = ProcessInfo.processInfo.environment
         for key in ["NODE_OPTIONS", "NODE_PATH", "NETEASE_COOKIE", "AMNCM_EXPECTED_UID"] {
             environment.removeValue(forKey: key)
@@ -77,9 +79,12 @@ final class Engine {
                 receive(event)
             }
         }
-        while task.isRunning { try? await Task.sleep(for: .milliseconds(25)) }
+        let status = await Task.detached {
+            task.waitUntilExit()
+            return task.terminationStatus
+        }.value
         if cancelled { throw CancellationError() }
-        if task.terminationStatus != 0 {
+        if status != 0 {
             throw Failure(failure ?? "任务意外停止，请重试。")
         }
     }

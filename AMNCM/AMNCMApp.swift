@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct AMNCMApp: App {
@@ -12,6 +13,7 @@ struct AMNCMApp: App {
                 .task {
                     appDelegate.onTerminate = { model.stop() }
                     model.start()
+                    await model.updates.checkIfDue()
                 }
         }
         .defaultSize(width: 660, height: 650)
@@ -37,7 +39,17 @@ struct AMNCMApp: App {
 }
 
 
-private final class AppDelegate: NSObject, NSApplicationDelegate {
+private final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        UNUserNotificationCenter.current().delegate = self
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                           willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .list, .sound]
+    }
+
+
     var onTerminate: (() -> Void)?
 
     func applicationWillTerminate(_ notification: Notification) {

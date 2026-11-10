@@ -201,7 +201,7 @@ async function verifyCatalog(entries, current, request) {
 }
 
 async function plan(db, songs, target, limit, request, output, event) {
-    event("progress", { text: "正在读取网易云的喜欢歌单" });
+    event("progress", { text: "正在读取网易云的「我喜欢的音乐」" });
     const index = new Map();
     const readDetails = db.prepare("SELECT metadata FROM netease_detail WHERE id = ?");
     const storeDetails = db.prepare("INSERT OR REPLACE INTO netease_detail VALUES (?, ?)");
@@ -347,7 +347,7 @@ async function plan(db, songs, target, limit, request, output, event) {
     writeReport({ sourceDigest: digest(songs), target, additions, desired, stats, entries });
     event("plan", { count: songs.length, matched: stats.matched, additions: additions.length,
         review: stats.review + stats.missing + stats.unavailable, incomplete: stats.failed + stats.pending,
-        uid: target.uid });
+        uid: target.uid, ids: target.tracks });
     if (!process.env.AMNCM_EMBEDDED) {
         output(JSON.stringify(stats));
         output(reportPath);
@@ -488,7 +488,7 @@ async function apply(songs, target, request, favorites, output, pilot, event) {
         throw new Error("网易云回读的红心集合与歌单成员不一致。");
     }
     if (reconciled && !pilot && readFileSync(reportPath, "utf8") === savedReport) writeReport(report);
-    event("done", { count: verified.tracks.length, additions: pending.length });
+    event("done", { count: verified.tracks.length, additions: pending.length, ids: report.additions });
     output(`已核实网易云红心集合和歌单顺序，共 ${verified.tracks.length} 首，本次新增红心 ${pending.length} 首。`);
 }
 

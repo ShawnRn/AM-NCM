@@ -101,7 +101,7 @@ async function favorites() {
     const { playlist: detail } = await request("playlist_detail", { id: target.id });
     const tracks = detail?.trackIds?.map(track => String(track.id)) ?? [];
     if (!detail || tracks.length < Number(detail.trackCount) || tracks.some(id => !/^\d+$/.test(id))) {
-        throw new Error(`网易云未返回完整的喜欢歌单曲目（有序 ID ${tracks.length} / 总数 ${detail?.trackCount}）。`);
+        throw new Error(`网易云未返回「我喜欢的音乐」的完整曲目（有序 ID ${tracks.length} / 总数 ${detail?.trackCount}）。`);
     }
     return { uid: String(uid), id: String(target.id), name: detail.name, tracks, reportedCount: detail.trackCount };
 }
@@ -127,6 +127,30 @@ async function main() {
             throw new Error("暂时无法清除网易云登录，请重试。");
         }
         event("logout");
+    }
+    else if (embedded && (command === "likes" || command === "details")) {
+        const target = await favorites();
+        if (target.uid !== process.env.AMNCM_EXPECTED_UID) {
+            throw new Error("网易云登录账号已更换，请在 App 内重新连接。");
+        }
+        if (command === "likes") event("likes", { ids: target.tracks });
+        else {
+            const selected = new Set(process.argv.slice(3));
+            const ids = target.tracks.filter(id => selected.has(id));
+            const tracks = [];
+            for (let start = 0; start < ids.length; start += 100) {
+                const { songs } = await request("song_detail", { ids: ids.slice(start, start + 100).join(",") });
+                for (const song of songs ?? []) {
+                    tracks.push({
+                        id: String(song.id), title: song.name ?? "",
+                        artist: (song.ar ?? []).map(artist => artist.name).join(", "),
+                        artists: (song.ar ?? []).map(artist => artist.name).filter(Boolean),
+                        album: song.al?.name ?? "", duration: Number(song.dt) / 1000 || 0,
+                    });
+                }
+            }
+            event("details", { tracks });
+        }
     }
     else if (command === "favorites") output(JSON.stringify(await favorites()));
     else if (command === "check") {

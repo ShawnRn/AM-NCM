@@ -90,6 +90,9 @@
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "-";
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CURRENT_PROJECT_VERSION = 1;
+				MARKETING_VERSION = 0.1.0;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "AM-NCM 读取音乐资料库的曲目和添加日期，用于同步到网易云音乐。";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
@@ -111,6 +114,9 @@
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "-";
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CURRENT_PROJECT_VERSION = 1;
+				MARKETING_VERSION = 0.1.0;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "AM-NCM 读取音乐资料库的曲目和添加日期，用于同步到网易云音乐。";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";

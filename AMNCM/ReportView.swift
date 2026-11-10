@@ -41,7 +41,7 @@ struct ReportView: View {
                 if (error as NSError).code == NSFileReadNoSuchFileError {
                     errorMessage = "回到首页，选择「预览同步」后即可查看匹配明细。"
                 } else {
-                    errorMessage = error.localizedDescription
+                    errorMessage = ChineseInterfaceText.format(error.localizedDescription)
                 }
             }
         }

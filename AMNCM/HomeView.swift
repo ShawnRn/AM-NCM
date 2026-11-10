@@ -19,6 +19,11 @@ struct HomeView: View {
                                   connected: model.accountID != nil)
                 }
 
+                if let update = model.updates.update {
+                    Link(destination: update.url) {
+                        Label("AM-NCM \(update.version) 可用 · 查看发布页", systemImage: "arrow.up.circle")
+                    }
+                }
                 Divider()
                 HomeActionView(model: model)
 
@@ -31,7 +36,7 @@ struct HomeView: View {
 
                 if let lastSync = model.lastSync {
                     LabeledContent("上次同步") {
-                        Text(lastSync, format: .dateTime.month().day().hour().minute())
+                        Text(ChineseInterfaceText.format(lastSync.formatted(.dateTime.month().day().hour().minute())))
                         if let added = model.lastAdded {
                             Text(added > 0 ? "新增 \(added) 首红心" : "无需新增红心")
                                 .foregroundStyle(.secondary)
@@ -41,7 +46,7 @@ struct HomeView: View {
                 }
                 if model.interval != .manual, let nextSync = model.nextSync {
                     LabeledContent("下次自动同步") {
-                        Text(nextSync, format: .dateTime.month().day().hour().minute())
+                        Text(ChineseInterfaceText.format(nextSync.formatted(.dateTime.month().day().hour().minute())))
                     }
                     .font(.callout)
                 }
@@ -111,10 +116,10 @@ private struct ActivityView: View {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(activities) { activity in
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text(activity.date, format: .dateTime.hour().minute().second())
+                        Text(ChineseInterfaceText.format(activity.date.formatted(.dateTime.hour().minute().second())))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
-                        Text(activity.text)
+                        Text(ChineseInterfaceText.format(activity.text))
                     }
                     .font(.callout)
                 }

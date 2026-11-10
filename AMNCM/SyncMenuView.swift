@@ -9,7 +9,7 @@ struct SyncMenuView: View {
             Text(model.stage)
             if let counter = model.counter { Text(counter) }
         } else if let date = model.lastSync {
-            Text("上次同步 \(date, format: .dateTime.month().day().hour().minute())")
+            Text("上次同步 \(ChineseInterfaceText.format(date.formatted(.dateTime.month().day().hour().minute())))")
         } else {
             Text(model.ready ? "可以同步" : "等待连接音乐服务")
         }

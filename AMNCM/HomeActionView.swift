@@ -8,7 +8,7 @@ struct HomeActionView: View {
             VStack(alignment: .leading, spacing: 14) {
                 if operation == .login, let data = model.qrImage, let image = NSImage(data: data) {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("打开手机上的网易云音乐，用扫一扫登录。")
+                        Text("打开手机上的网易云音乐，用「扫一扫」登录。")
                         Image(nsImage: image)
                             .interpolation(.none)
                             .resizable()
@@ -41,7 +41,7 @@ struct HomeActionView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("第一步 · 连接 Apple Music")
                     .font(.headline)
-                Text("请在 Mac 的音乐 App 中登录并打开资料库。出现系统提示时，选择允许。")
+                Text("请在 Mac 的音乐 App 中登录并打开资料库。出现系统提示时，选择「允许」。")
                     .foregroundStyle(.secondary)
                 Button("连接 Apple Music", systemImage: "music.note", action: model.connectMusic)
                     .buttonStyle(.borderedProminent)
@@ -51,7 +51,7 @@ struct HomeActionView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("第二步 · 登录网易云音乐")
                     .font(.headline)
-                Text("用手机扫码并确认，即可连接你的喜欢歌单。")
+                Text("用手机扫码并确认，即可连接「我喜欢的音乐」。")
                     .foregroundStyle(.secondary)
                 Button("扫码登录", systemImage: "qrcode", action: model.login)
                     .buttonStyle(.borderedProminent)
@@ -85,14 +85,27 @@ private struct PreviewView: View {
                 Text("\(preview.review.formatted()) 首暂时跳过，可在「匹配明细」查看原因。")
                     .foregroundStyle(.secondary)
             }
+            if preview.reverseCount > 0 {
+                Text("将向 Apple Music 添加 \(preview.reverseCount.formatted()) 首歌曲。")
+            }
+            if preview.reverseReview > 0 {
+                Text("有 \(preview.reverseReview.formatted()) 首新红心暂未找到可靠匹配。")
+                    .foregroundStyle(.secondary)
+            }
+            if preview.reversePaused {
+                Text("Apple Music 反向同步已暂停，请在设置中重新登录。")
+                    .foregroundStyle(.secondary)
+            }
             Text("已匹配歌曲按添加时间排列，网易云原有红心会保留。")
                 .foregroundStyle(.secondary)
             HStack {
-                Button("同步到网易云", systemImage: "arrow.trianglehead.clockwise", action: confirm)
+                Button("开始同步", systemImage: "arrow.trianglehead.clockwise", action: confirm)
                     .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
                 Button("稍后再说", action: cancel)
+                    .buttonStyle(.bordered)
             }
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
         }
     }
 }

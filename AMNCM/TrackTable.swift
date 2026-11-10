@@ -12,7 +12,7 @@ struct TrackTable: View {
             }
             TableColumn("添加日期") { entry in
                 if let date = entry.source.dateAdded {
-                    Text(date, format: .dateTime.year().month().day())
+                    Text(ChineseInterfaceText.format(date.formatted(.dateTime.year().month().day())))
                 } else {
                     Text("—")
                 }
