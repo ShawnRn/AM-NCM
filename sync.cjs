@@ -406,9 +406,8 @@ async function plan(db, songs, target, limit, request, output, event) {
         await verifyCatalog(entries, current, request);
     }
     const ordered = [...new Set(entries.map(entry => entry.id).filter(Boolean))];
-    const matched = new Set(ordered);
     const additions = ordered.filter(id => !current.has(id));
-    const desired = [...ordered, ...target.tracks.filter(id => !matched.has(id))];
+    const desired = preservingLocalOrder(ordered, target.tracks);
     const stats = {
         source: songs.length, matched: entries.filter(entry => entry.id).length,
         reused, queries, albumQueries, failed, manual: entries.filter(entry => entry.status === "manual").length,
@@ -428,6 +427,17 @@ async function plan(db, songs, target, limit, request, output, event) {
         output(JSON.stringify(stats));
         output(reportPath);
     }
+}
+
+// Sort only the slots occupied by matched songs. A NetEase-only favorite must
+// keep its place, especially when it has just been liked and is still unmatched.
+function preservingLocalOrder(ordered, tracks) {
+    const matched = new Set(ordered);
+    const current = new Set(tracks);
+    const additions = ordered.filter(id => !current.has(id));
+    const existing = ordered.filter(id => current.has(id));
+    let index = 0;
+    return [...additions, ...tracks.map(id => matched.has(id) ? existing[index++] : id)];
 }
 
 async function reconcileCatalogIds(report, tracks, request, output) {
@@ -497,9 +507,12 @@ async function apply(songs, target, request, favorites, output, pilot, event) {
             throw new Error("试同步需要前 N 首歌曲都有唯一匹配。");
         }
         const existing = new Set(report.target.tracks);
-        const selected = new Set(ordered);
         report.additions = ordered.filter(id => !existing.has(id));
-        report.desired = [...ordered, ...report.target.tracks.filter(id => !selected.has(id))];
+        report.desired = preservingLocalOrder(ordered, report.target.tracks);
+    } else {
+        // Recompute old reports too; never apply their former tail-pushing order.
+        const ordered = [...new Set(report.entries.map(entry => entry.id).filter(Boolean))];
+        report.desired = preservingLocalOrder(ordered, report.target.tracks);
     }
     let reconciled = await reconcileCatalogIds(report, target.tracks, request, output);
     const before = new Set(target.tracks);
@@ -537,7 +550,9 @@ async function apply(songs, target, request, favorites, output, pilot, event) {
         event("progress", { text: "正在添加红心", completed: Math.min(start + 40, pending.length), total: pending.length });
         await delay(500);
     }
-    const updated = pending.length ? await favorites() : target;
+    // Even an order-only sync may have spent minutes in the confirmation UI or
+    // matching Apple Music. Never reuse the earlier snapshot for a full-list write.
+    const updated = await favorites();
     if (updated.id === target.id && await reconcileCatalogIds(report, updated.tracks, request, output)) {
         reconciled = true;
         allowed = new Set(report.desired);
@@ -553,6 +568,7 @@ async function apply(songs, target, request, favorites, output, pilot, event) {
             && !sameOrder(updated.tracks.filter(id => original.has(id)), report.target.tracks)) {
             throw new Error("添加红心期间歌单顺序发生变化，请重新生成计划。");
         }
+        await requireUnchangedFavorites(updated, favorites, request);
         event("progress", { text: "正在调整歌曲顺序" });
         await request("song_order_update", { pid: target.id, ids: JSON.stringify(report.desired.map(Number)) });
         reordered = true;
@@ -562,6 +578,7 @@ async function apply(songs, target, request, favorites, output, pilot, event) {
         && onlyRedirectedPositionsDiffer(verified.tracks, report)) {
         const redirected = redirectedIds(report);
         const ids = report.desired.map(id => Number(redirected.get(id) ?? id));
+        await requireUnchangedFavorites(verified, favorites, request);
         await request("song_order_update", { pid: target.id, ids: JSON.stringify(ids) });
         reordered = true;
     }
@@ -572,6 +589,14 @@ async function apply(songs, target, request, favorites, output, pilot, event) {
     event("done", { count: verified.tracks.length, additions: pending.length, ids: report.additions,
         currentIDs: verified.tracks, reordered, changed: !sameOrder(target.tracks, verified.tracks) });
     output(`已核实网易云红心集合和歌单顺序，共 ${verified.tracks.length} 首，本次新增红心 ${pending.length} 首。`);
+}
+
+async function requireUnchangedFavorites(expected, favorites, request) {
+    await verifyLikes(expected, new Set(expected.tracks), request);
+    const latest = await favorites();
+    if (latest.uid !== expected.uid || latest.id !== expected.id || !sameOrder(latest.tracks, expected.tracks)) {
+        throw new Error("网易云红心或顺序刚刚发生变化，已停止调整。请重新预览后同步。");
+    }
 }
 
 async function verifyStableOrder(target, desired, allowed, favorites, request) {

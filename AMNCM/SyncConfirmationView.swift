@@ -79,7 +79,7 @@ struct SyncConfirmationView: View {
                     Text(preview.updatesOrder ? "网易云将调整顺序" : "网易云顺序无需调整")
                         .fontWeight(.semibold)
                     if preview.updatesOrder {
-                        Text("匹配歌曲按 Apple Music 的添加时间排列，原有红心会保留。")
+                        Text("仅调整已匹配歌曲之间的顺序，网易云独有的红心保留原位。")
                             .foregroundStyle(.secondary)
                     }
                 }
