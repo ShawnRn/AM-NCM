@@ -23,6 +23,10 @@ struct EngineEvent: Decodable {
 
 @MainActor
 final class Engine {
+    static let playlistRetryLimitKey = "playlistRetryLimit"
+    static let defaultPlaylistRetryLimit = 3
+    static let playlistRetryLimits = 0...10
+
     private var process: Process?
     private var cancelled = false
 
@@ -50,6 +54,11 @@ final class Engine {
         }
         environment["AMNCM_EMBEDDED"] = "1"
         environment["AMNCM_EXPECTED_UID"] = account
+        let retryLimit = UserDefaults.standard.object(forKey: Self.playlistRetryLimitKey) as? Int
+            ?? Self.defaultPlaylistRetryLimit
+        environment["AMNCM_PLAYLIST_RETRY_LIMIT"] = String(
+            Self.playlistRetryLimits.contains(retryLimit) ? retryLimit : Self.defaultPlaylistRetryLimit
+        )
         task.environment = environment
         task.standardOutput = pipe
         task.standardError = pipe

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SyncSettingsView: View {
     let model: SyncModel
+    @AppStorage(Engine.playlistRetryLimitKey) private var playlistRetryLimit = Engine.defaultPlaylistRetryLimit
     @Environment(\.dismiss) private var dismiss
     @State private var confirmLogout = false
     @State private var appleLogin: AppleLoginPurpose?
@@ -69,6 +70,13 @@ struct SyncSettingsView: View {
                     Text("App 运行时会自动同步。有变化时，才会发送已开启的成功通知。")
                         .foregroundStyle(.secondary)
                 }
+                Picker("读取红心重试次数", selection: $playlistRetryLimit) {
+                    Text("不重试").tag(0)
+                    ForEach(Engine.playlistRetryLimits.dropFirst(), id: \.self) { count in
+                        Text("\(count) 次").tag(count)
+                    }
+                }
+                .disabled(model.operation != nil)
             }
 
             Section("通知") {

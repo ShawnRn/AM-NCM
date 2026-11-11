@@ -10,6 +10,8 @@ let api;
 const musicAPI = () => api ??= require("@neteasecloudmusicapienhanced/api");
 const service = "local.am-ncm.netease";
 const embedded = process.env.AMNCM_EMBEDDED === "1";
+const configuredPlaylistRetries = process.env.AMNCM_PLAYLIST_RETRY_LIMIT ?? "";
+const playlistRetryLimit = /^(?:[0-9]|10)$/.test(configuredPlaylistRetries) ? Number(configuredPlaylistRetries) : 3;
 const event = (kind, fields = {}) => {
     if (embedded) output(JSON.stringify({ kind, ...fields }));
 };
@@ -90,16 +92,26 @@ async function login() {
 
 async function request(method, params) {
     const cookie = ["search", "album"].includes(method) ? {} : readCookie();
-    try {
-        const response = await musicAPI()[method]({ ...params, cookie, timeout: 12000 });
-        const body = response.body?.body ?? response.body;
-        if (body?.code !== 200 && body?.data?.code !== 200) {
-            throw new Error(String(body?.code ?? response.status ?? "unknown"));
+    for (let attempt = 0; ; attempt++) {
+        try {
+            const response = await musicAPI()[method]({ ...params, cookie, timeout: 12000 });
+            const body = response.body?.body ?? response.body;
+            if (body?.code !== 200 && body?.data?.code !== 200) {
+                throw new Error(String(body?.code ?? response.status ?? "unknown"));
+            }
+            return body;
+        } catch (error) {
+            const code = error?.body?.code ?? error?.status ?? error?.response?.status ?? error?.message;
+            if (method === "playlist_detail" && /^(502|503|504)$/.test(code)) {
+                if (attempt < playlistRetryLimit) {
+                    if (embedded) message(`网易云暂时无法读取「我喜欢的音乐」（${code}），正在重试（第 ${attempt + 1} / ${playlistRetryLimit} 次）`);
+                    await delay(Math.min(1000 + attempt * 2000, 10000));
+                    continue;
+                }
+                throw new Error(`网易云暂时无法读取「我喜欢的音乐」（${code}）。请稍后再同步。`);
+            }
+            throw new Error(`网易云 ${method} 请求失败（${/^\d+$/.test(code) ? code : "网络或会话异常"}）。`);
         }
-        return body;
-    } catch (error) {
-        const code = error?.body?.code ?? (error instanceof Error ? error.message : error?.status);
-        throw new Error(`网易云 ${method} 请求失败（${/^\d+$/.test(code) ? code : "网络或会话异常"}）。`);
     }
 }
 
